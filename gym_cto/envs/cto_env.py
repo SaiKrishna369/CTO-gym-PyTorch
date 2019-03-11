@@ -1,9 +1,11 @@
+import torch
 import gym
 import random
 import numpy as np
-from math import sqrt
 from gym.envs.classic_control import rendering
 from gym import logger
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 """
 CTO variant with only 1 observer
@@ -42,60 +44,60 @@ class CtoEnv(gym.Env):
                     targetSpeed=1.0,
                     totalSimTime=1500, gridWidth=150, gridHeight=150, compact=False):
         #System variables
-        self.curr_episode = 0
-        self.curr_step = 0
+        self.curr_episode = torch.tensor(0).to(device)
+        self.curr_step = torch.tensor(0).to(device)
         
         # general variables in the environment
-        self.runTime = totalSimTime        
+        self.runTime = torch.tensor(totalSimTime).to(device)        
 
         #total number of targets in the simulation
-        self.numTargets = targets
+        self.numTargets = torch.tensor(targets).to(device)
 
         #maximum time for which one target can stay oncourse for its destination
-        self.targetMaxStep = targetMaxStep
+        self.targetMaxStep = torch.tensor(targetMaxStep).to(device)
 
         #speed of target
-        self.targetSpeed = targetSpeed
-        self.agentSpeed = 1.0
+        self.targetSpeed = torch.tensor(targetSpeed).to(device)
+        self.agentSpeed = torch.tensor(1.0).to(device)
 
         #sensor range of the observer
-        self.sensorRange = sensorRange
+        self.sensorRange = torch.tensor(sensorRange).to(device)
 
         #time after which observer takes the decision
-        self.updateRate = updateRate
+        self.updateRate = torch.tensor(updateRate).to(device)
 
         #2D field dimensions
-        self.gridHeight = gridHeight
-        self.gridWidth = gridWidth
+        self.gridHeight = torch.tensor(gridHeight).to(device)
+        self.gridWidth = torch.tensor(gridWidth).to(device)
 
-        self.compactRepresentation = compact
+        self.compactRepresentation = torch.tensor(compact).to(device)
 
         #Initialize target locations and their destinations
-        self.targetLocations = np.array([[0.0, 0.0]]*self.numTargets)
-        self.targetDestinations = np.array([[0.0, 0.0]]*self.numTargets)
-        self.targetSteps = np.array([self.targetMaxStep]*self.numTargets)
-        self.targetPosIncrements = np.array([(-1000.0, -1000.0)]*self.numTargets)
+        self.targetLocations = torch.tensor( np.array([[0.0, 0.0]]*self.numTargets, dtype=np.float32) ).to(device)
+        self.targetDestinations = torch.tensor( np.array([[0.0, 0.0]]*self.numTargets, dtype=np.float32) ).to(device)
+        self.targetSteps = torch.tensor( np.array([self.targetMaxStep]*self.numTargets, dtype=np.float32) ).to(device)
+        self.targetPosIncrements = torch.tensor( np.array([(-1000.0, -1000.0)]*self.numTargets, dtype=np.float32) ).to(device)
 
         for i in xrange(self.numTargets):
-            self.targetDestinations[i][0] = random.uniform(0, self.gridWidth)
-            self.targetDestinations[i][1] = random.uniform(0, self.gridHeight)
+            self.targetDestinations[i][0] = self.gridWidth*torch.rand(1)
+            self.targetDestinations[i][1] = self.gridHeight*torch.rand(1)
 
-            self.targetLocations[i][0] = random.uniform(0, self.gridWidth)
-            self.targetLocations[i][1] = random.uniform(0, self.gridHeight)
+            self.targetLocations[i][0] = self.gridWidth*torch.rand(1)
+            self.targetLocations[i][1] = self.gridHeight*torch.rand(1)
 
             while not self.acceptable(i):
-                self.targetLocations[i][0] = random.uniform(0, self.gridWidth)
-                self.targetLocations[i][1] = random.uniform(0, self.gridHeight)
+                self.targetLocations[i][0] = self.gridWidth*torch.rand(1)
+                self.targetLocations[i][1] = self.gridHeight*torch.rand(1)
 
         #Initialize the agent and ensure it is not on top of other target
-        self.agentPosition = np.array([0.0, 0.0])
-        self.agentPosition[0] = random.uniform(0, self.gridWidth)
-        self.agentPosition[1] = random.uniform(0, self.gridHeight)
+        self.agentPosition = torch.tensor (np.array([0.0, 0.0], dtype=np.float32) ).to(device)
+        self.agentPosition[0] = self.gridWidth*torch.rand(1)
+        self.agentPosition[1] = self.gridHeight*torch.rand(1)
         while not self.acceptable(-1, True):
-            self.agentPosition[0] = random.uniform(0, self.gridWidth)
-            self.agentPosition[1] = random.uniform(0, self.gridHeight)
+            self.agentPosition[0] = self.gridWidth*torch.rand(1)
+            self.agentPosition[1] = self.gridHeight*torch.rand(1)
 
-        self.agentPosIncrements = np.array([-1000.0, -1000.0])
+        self.agentPosIncrements = torch.tensor( np.array([-1000.0, -1000.0], dtype=np.float32) ).to(device)
 
         self.episodes = self.runTime / self.updateRate  
 
@@ -120,7 +122,7 @@ class CtoEnv(gym.Env):
     # Calculates euclidean distance between two points
     def distance(self, pos1, pos2):
         euclideanDistance = (pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2
-        return sqrt(euclideanDistance)
+        return torch.sqrt(euclideanDistance)
 
 
     def reset(self):
@@ -129,9 +131,10 @@ class CtoEnv(gym.Env):
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
                     self.state.append(t)
+            self.state = torch.cat(self.state)
 
         else:
-            self.state = [[0.0, 0.0]]*self.numTargets
+            self.state = torch.tensor( np.array([[0.0, 0.0]]*self.numTargets, dtype=np.float32) )
 
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:

@@ -1,0 +1,5 @@
+#Ignore folder
+gym_cto.egg-info/
+
+#ignore compiled files
+*.pyc

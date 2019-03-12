@@ -16,9 +16,9 @@ pip install -e .
 
 ```
 import gym
-import gym_cto
+import gym_cto_pytorch
 
-env = gym.make('CTO-v0') or env = gym.make('CTO-v1')
+env = gym.make('TCTO-v0') or env = gym.make('TCTO-v1')
 env.initialize() #compulsory
 env.reset() #compulsory
 ```

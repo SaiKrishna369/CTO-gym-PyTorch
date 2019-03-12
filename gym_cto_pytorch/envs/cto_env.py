@@ -43,6 +43,7 @@ class CtoEnv(gym.Env):
     def initialize(self, targets=10, sensorRange=15, updateRate=10, targetMaxStep=100,
                     targetSpeed=1.0,
                     totalSimTime=1500, gridWidth=150, gridHeight=150, compact=False):
+        print "Using", device
         #System variables
         self.curr_episode = torch.tensor(0).to(device)
         self.curr_step = torch.tensor(0).to(device)
@@ -61,22 +62,22 @@ class CtoEnv(gym.Env):
         self.agentSpeed = torch.tensor(1.0).to(device)
 
         #sensor range of the observer
-        self.sensorRange = torch.tensor(sensorRange).to(device)
+        self.sensorRange = torch.tensor(sensorRange).type(torch.FloatTensor).to(device)
 
         #time after which observer takes the decision
         self.updateRate = torch.tensor(updateRate).to(device)
 
         #2D field dimensions
-        self.gridHeight = torch.tensor(gridHeight).to(device)
-        self.gridWidth = torch.tensor(gridWidth).to(device)
+        self.gridHeight = torch.tensor(gridHeight).type(torch.FloatTensor).to(device)
+        self.gridWidth = torch.tensor(gridWidth).type(torch.FloatTensor).to(device)
 
         self.compactRepresentation = torch.tensor(compact).to(device)
 
         #Initialize target locations and their destinations
-        self.targetLocations = torch.tensor( np.array([[0.0, 0.0]]*self.numTargets, dtype=np.float32) ).to(device)
-        self.targetDestinations = torch.tensor( np.array([[0.0, 0.0]]*self.numTargets, dtype=np.float32) ).to(device)
-        self.targetSteps = torch.tensor( np.array([self.targetMaxStep]*self.numTargets, dtype=np.float32) ).to(device)
-        self.targetPosIncrements = torch.tensor( np.array([(-1000.0, -1000.0)]*self.numTargets, dtype=np.float32) ).to(device)
+        self.targetLocations = torch.zeros(self.numTargets, 2).to(device)
+        self.targetDestinations = torch.zeros(self.numTargets, 2).to(device)
+        self.targetSteps = torch.empty(self.numTargets).fill_(self.targetMaxStep).to(device)
+        self.targetPosIncrements = torch.empty(self.numTargets, 2).fill_(-1000.0).to(device).to(device)
 
         for i in xrange(self.numTargets):
             self.targetDestinations[i][0] = self.gridWidth*torch.rand(1)
@@ -90,14 +91,14 @@ class CtoEnv(gym.Env):
                 self.targetLocations[i][1] = self.gridHeight*torch.rand(1)
 
         #Initialize the agent and ensure it is not on top of other target
-        self.agentPosition = torch.tensor (np.array([0.0, 0.0], dtype=np.float32) ).to(device)
+        self.agentPosition = torch.zeros(2).to(device)
         self.agentPosition[0] = self.gridWidth*torch.rand(1)
         self.agentPosition[1] = self.gridHeight*torch.rand(1)
         while not self.acceptable(-1, True):
             self.agentPosition[0] = self.gridWidth*torch.rand(1)
             self.agentPosition[1] = self.gridHeight*torch.rand(1)
 
-        self.agentPosIncrements = torch.tensor( np.array([-1000.0, -1000.0], dtype=np.float32) ).to(device)
+        self.agentPosIncrements = torch.empty(2).fill_(-1000.0).to(device)
 
         self.episodes = self.runTime / self.updateRate  
 
@@ -127,21 +128,30 @@ class CtoEnv(gym.Env):
 
     def reset(self):
         if self.compactRepresentation:
-            self.state = []
+            self.state = None
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
-                    self.state.append(t)
-            self.state = torch.cat(self.state)
+                    if self.state is None:
+                        self.state = t
+                    elif self.state.shape == t.shape:
+                        self.state = torch.cat([self.state.unsqueeze(0), t.unsqueeze(0)], dim=0)
+                    else:
+                        self.state = torch.cat([self.state, t.unsqueeze(0)], dim=0)
 
         else:
-            self.state = torch.tensor( np.array([[0.0, 0.0]]*self.numTargets, dtype=np.float32) )
+            self.state = torch.zeros(self.numTargets, 2).to(device)
 
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
                     self.state[i] = t
 
-        self.state.append(self.agentPosition)
-        return np.array(self.state)
+        if self.state is None:
+            self.state = self.agentPosition.unsqueeze(0)
+        elif self.state.shape == self.agentPosition.shape:
+            self.state = torch.cat([self.state.unsqueeze(0), self.agentPosition.unsqueeze(0)], dim=0)
+        else:
+            self.state = torch.cat([self.state, self.agentPosition.unsqueeze(0)], dim=0)
+        return self.state
 
 
     def step(self, action):
@@ -151,9 +161,9 @@ class CtoEnv(gym.Env):
 
         self.curr_episode += 1
 
-        reward = 0
-        agentReachedDest = False
-        self.agentPosIncrements = np.array([-1000.0, -1000.0])
+        reward = torch.tensor(0).to(device)
+        agentReachedDest = torch.tensor(False).to(device)
+        self.agentPosIncrements = torch.tensor([-1000.0, -1000.0]).to(device)
 
         for _ in xrange(self.updateRate):
             self.curr_step += 1
@@ -166,7 +176,7 @@ class CtoEnv(gym.Env):
             if not agentReachedDest:
                 agentReachedDest = self.moveAgent(action)
             else:
-                self.agentPosition = action.astype('float32')
+                self.agentPosition = action
 
             #Calculate reward at this step
             for i, t in enumerate(self.targetLocations):
@@ -187,7 +197,7 @@ class CtoEnv(gym.Env):
             self.targetDestinations[idx][1] = random.uniform(0, self.gridHeight)            
             #Create new destination and reset step counter to max allowed time and position increments to default   
             self.targetSteps[idx] = self.targetMaxStep
-            self.targetPosIncrements[idx] = np.array((-1000.0, -1000.0))
+            self.targetPosIncrements[idx] = torch.empty(2).fill_(-1000.0).to(device)
 
         if self.targetPosIncrements[idx][0] == -1000.0 or self.targetPosIncrements[idx][1] == -1000.0:
             self.targetPosIncrements[idx] = self.calculateIncrements(self.targetLocations[idx], 
@@ -232,23 +242,23 @@ class CtoEnv(gym.Env):
         dx = 1.0*dest[0] - loc[0]
         dy = 1.0*dest[1] - loc[1]
 
-        theta = 0.0
+        theta = torch.tensor(0.0).to(device)
         if abs(dx) > abs(dy):
-            theta = abs(dx)
+            theta = torch.abs(dx)
         else:
-            theta = abs(dy)
+            theta = torch.abs(dy)
         
         if theta == 0.0:
-            return np.array((0.0, 0.0))
+            return torch.tensor([0.0, 0.0]).to(device)
 
         xInc = dx / theta
         yInc = dy / theta
-        normalizer = sqrt(xInc**2 + yInc**2)
+        normalizer = torch.sqrt(xInc**2 + yInc**2)
 
         xInc = (xInc / normalizer)*speed
         yInc = (yInc / normalizer)*speed
 
-        return np.array((xInc, yInc))
+        return torch.tensor([xInc, yInc]).to(device)
 
     def getAgentPosition(self):
         return self.agentPosition

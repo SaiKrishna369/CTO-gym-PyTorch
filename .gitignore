@@ -1,5 +1,5 @@
 #Ignore folder
-gym_cto.egg-info/
+gym_cto_pytorch.egg-info/
 
 #ignore compiled files
 *.pyc

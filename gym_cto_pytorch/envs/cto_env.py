@@ -161,7 +161,7 @@ class CtoEnv(gym.Env):
 
         self.curr_episode += 1
 
-        reward = torch.tensor(0).to(device)
+        reward = torch.tensor(0).type(torch.FloatTensor).to(device)
         agentReachedDest = torch.tensor(False).to(device)
         self.agentPosIncrements = torch.tensor([-1000.0, -1000.0]).to(device)
 

@@ -145,12 +145,12 @@ class CtoEnv(gym.Env):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
                     self.state[i] = t
 
-        if self.state is None:
-            self.state = self.agentPosition.unsqueeze(0)
-        elif self.state.shape == self.agentPosition.shape:
-            self.state = torch.cat([self.state.unsqueeze(0), self.agentPosition.unsqueeze(0)], dim=0)
-        else:
-            self.state = torch.cat([self.state, self.agentPosition.unsqueeze(0)], dim=0)
+        # if self.state is None:
+        #     self.state = self.agentPosition.unsqueeze(0)
+        # elif self.state.shape == self.agentPosition.shape:
+        #     self.state = torch.cat([self.state.unsqueeze(0), self.agentPosition.unsqueeze(0)], dim=0)
+        # else:
+        #     self.state = torch.cat([self.state, self.agentPosition.unsqueeze(0)], dim=0)
         return self.state
 
 

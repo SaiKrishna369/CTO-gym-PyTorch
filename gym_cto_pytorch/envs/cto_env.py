@@ -90,10 +90,20 @@ class CtoEnv(gym.Env):
         self.episodes = self.runTime / self.updateRate
 
         #Defaulted variables
+        self.ze = torch.tensor(0.0).to(device)
         self.ze1 = torch.zeros(1).to(device)
         self.ze2 = torch.zeros(2).to(device)
         self.agentReachedDest = torch.tensor(False).to(device)
         self.reward = torch.zeros(1).to(device)
+        self.one1 = torch.tensor(1).to(device)
+        self.one2 = torch.ones(2).to(device)
+        self.fals = torch.tensor(False).to(device)
+        self.dummy = torch.empty(2).fill_(-1000.0).to(device)
+
+        #Calculate target movements
+        for idx in xrange(self.numTargets):
+            self.targetPosIncrements[idx] = self.calculateIncrements(self.targetLocations[idx], 
+                                                                        self.targetDestinations[idx], self.targetSpeed) 
 
     # Checks whether the two points are at least one unit apart
     # def acceptable(self, index, agent=False):
@@ -153,14 +163,14 @@ class CtoEnv(gym.Env):
             logger.warn("You are calling 'step()' even though this environment has already returned done = True. You should always call 'initialize()' and 'reset()' once you receive 'done = True'")
             return
 
-        self.curr_episode += 1
+        self.curr_episode += self.one1
 
-        self.reward.fill_(0.0)
-        self.agentReachedDest.fill_(False)
-        self.agentPosIncrements.fill_(-1000.0)
+        self.reward = self.ze.clone()
+        self.agentReachedDest = self.fals.clone()
+        self.agentPosIncrements = self.dummy.clone()
 
         for _ in xrange(self.updateRate):
-            self.curr_step += 1
+            self.curr_step += self.one1
 
             #Move targets
             for i in xrange(self.numTargets):
@@ -175,7 +185,7 @@ class CtoEnv(gym.Env):
             #Calculate reward at this step
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
-                    self.reward += 1
+                    self.reward += self.one1
 
             if self.viewer is not None:
                 self.render()
@@ -185,36 +195,32 @@ class CtoEnv(gym.Env):
 
     def moveTarget(self, idx):
         # Check if this target has been oncourse for max allowed time or it reached its destination
-        if self.targetSteps[idx] == 0 or (abs(self.targetDestinations[idx][0] - self.targetLocations[idx][0]) < 1 and 
-            abs(self.targetDestinations[idx][1] - self.targetLocations[idx][1]) < 1):
+        if self.targetSteps[idx] == self.ze or torch.all( torch.abs(self.targetDestinations[idx] - self.targetLocations[idx]) < self.one2):
             if not UsingGPU:
                 self.targetDestinations[idx] = self.gridDimensions * torch.rand(2).to(device)
             else:
-                self.targetDestinations[idx] = self.gridDimensions * torch.cuda.FloatTensor(2).uniform_(0, 1)
+                self.targetDestinations[idx] = self.gridDimensions * torch.cuda.FloatTensor(2).uniform_()
             #Create new destination and reset step counter to max allowed time and position increments to default   
             self.targetSteps[idx] = self.targetMaxStep
-            self.targetPosIncrements[idx].fill_(-1000.0)
-
-        if self.targetPosIncrements[idx][0] == -1000.0 or self.targetPosIncrements[idx][1] == -1000.0:
             self.targetPosIncrements[idx] = self.calculateIncrements(self.targetLocations[idx], 
                                                                         self.targetDestinations[idx], self.targetSpeed)       
 
         self.targetLocations[idx] += self.targetPosIncrements[idx]
-
+        
         self.targetLocations[idx] = torch.max( torch.min(self.targetLocations[idx], self.gridDimensions), self.ze2 )
 
-        self.targetSteps[idx] -= 1
+        self.targetSteps[idx] -= self.one1
 
 
     def moveAgent(self, dest):
-        if self.agentPosIncrements[0] == -1000.0 or self.agentPosIncrements[1] == -1000.0:
+        if torch.any(self.agentPosIncrements == self.dummy):
             self.agentPosIncrements = self.calculateIncrements(self.agentPosition, dest, self.agentSpeed)
         
         self.agentPosition += self.agentPosIncrements
 
         self.agentPosition = torch.max( torch.min(self.agentPosition, self.gridDimensions), self.ze2 )
 
-        if abs(dest[0] - self.agentPosition[0]) < 1 and abs(dest[1] - self.agentPosition[1]) < 1:
+        if torch.all( torch.abs(dest - self.agentPosition) < self.one2):
             return True
         else:
             return False
@@ -223,13 +229,9 @@ class CtoEnv(gym.Env):
     def calculateIncrements(self, loc, dest, speed):
         delta = dest - loc
 
-        theta = self.ze1.clone()
-        if abs(delta[0]) > abs(delta[1]):
-            theta = torch.abs(delta[0])
-        else:
-            theta = torch.abs(delta[1])
+        theta = torch.max( torch.abs(delta) )
         
-        if theta == 0.0:
+        if theta == self.ze:
             return self.ze2
 
         inc = delta / theta

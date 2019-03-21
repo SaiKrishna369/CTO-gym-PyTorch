@@ -86,6 +86,7 @@ class CtoEnv(gym.Env):
         #Initialize the agent
         self.agentPosition = self.gridDimensions * torch.rand(2).to(device)
         self.agentPosIncrements = torch.empty(2).fill_(-1000.0).to(device)
+        self.state = torch.zeros(self.numTargets, 2).to(device)
 
         self.episodes = self.runTime / self.updateRate
 
@@ -97,6 +98,7 @@ class CtoEnv(gym.Env):
         self.reward = torch.zeros(1).to(device)
         self.one1 = torch.tensor(1).to(device)
         self.one2 = torch.ones(2).to(device)
+        self.twof = torch.tensor(2.0).to(device)
         self.fals = torch.tensor(False).to(device)
         self.dummy = torch.empty(2).fill_(-1000.0).to(device)
 
@@ -124,7 +126,7 @@ class CtoEnv(gym.Env):
 
     # Calculates euclidean distance between two points
     def distance(self, pos1, pos2):
-        return torch.sqrt( torch.sum( torch.pow(pos1 - pos2, 2) ) )
+        return torch.sqrt( torch.sum( torch.pow(pos1 - pos2, self.twof) ) )
 
 
     def reset(self):
@@ -140,10 +142,7 @@ class CtoEnv(gym.Env):
                         self.state = torch.cat([self.state, t.unsqueeze(0)], dim=0)
 
         else:
-            if not UsingGPU:
-                self.state = torch.zeros(self.numTargets, 2).to(device)
-            else:
-                self.state = torch.cuda.FloatTensor(self.numTargets, 2).fill_(0.0)
+            self.state.fill_(self.ze)
 
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
@@ -197,9 +196,9 @@ class CtoEnv(gym.Env):
         # Check if this target has been oncourse for max allowed time or it reached its destination
         if self.targetSteps[idx] == self.ze or torch.all( torch.abs(self.targetDestinations[idx] - self.targetLocations[idx]) < self.one2):
             if not UsingGPU:
-                self.targetDestinations[idx] = self.gridDimensions * torch.rand(2).to(device)
+                self.targetDestinations[idx] = self.gridDimensions * torch.rand( self.gridDimensions.shape ).to(device)
             else:
-                self.targetDestinations[idx] = self.gridDimensions * torch.cuda.FloatTensor(2).uniform_()
+                self.targetDestinations[idx] = self.gridDimensions * torch.cuda.FloatTensor( self.gridDimensions.shape ).uniform_()
             #Create new destination and reset step counter to max allowed time and position increments to default   
             self.targetSteps[idx] = self.targetMaxStep
             self.targetPosIncrements[idx] = self.calculateIncrements(self.targetLocations[idx], 
@@ -235,7 +234,7 @@ class CtoEnv(gym.Env):
             return self.ze2
 
         inc = delta / theta
-        normalizer = torch.sqrt( torch.sum( torch.pow(inc, 2) ) )
+        normalizer = torch.sqrt( torch.sum( torch.pow(inc, self.twof) ) )
 
         inc = speed * (inc / normalizer)
 

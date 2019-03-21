@@ -80,21 +80,11 @@ class CtoEnv(gym.Env):
         self.targetSteps = torch.empty(self.numTargets).fill_(self.targetMaxStep).to(device)
         self.targetPosIncrements = torch.empty(self.numTargets, 2).fill_(-1000.0).to(device).to(device)
 
-        if not UsingGPU:
-            self.targetDestinations = self.gridDimensions * torch.rand(self.numTargets, 2).to(device)
-            self.targetLocations = self.gridDimensions * torch.rand(self.numTargets, 2).to(device)
-        else:
-            self.targetDestinations = self.gridDimensions * torch.cuda.FloatTensor(self.numTargets, 2).uniform_(0, 1)
-            self.targetLocations = self.gridDimensions * torch.cuda.FloatTensor(self.numTargets, 2).uniform_(0, 1)
+        self.targetDestinations = self.gridDimensions * torch.rand(self.numTargets, 2).to(device)
+        self.targetLocations = self.gridDimensions * torch.rand(self.numTargets, 2).to(device)
 
-        #Initialize the agent and ensure it is not on top of other target
-        self.agentPosition = torch.zeros(2).to(device)
-
-        if not UsingGPU:
-            self.agentPosition = self.gridDimensions * torch.rand(2).to(device)
-        else:
-            self.agentPosition = self.gridDimensions * torch.cuda.FloatTensor(2).uniform_(0, 1)
-
+        #Initialize the agent
+        self.agentPosition = self.gridDimensions * torch.rand(2).to(device)
         self.agentPosIncrements = torch.empty(2).fill_(-1000.0).to(device)
 
         self.episodes = self.runTime / self.updateRate
@@ -124,16 +114,15 @@ class CtoEnv(gym.Env):
 
     # Calculates euclidean distance between two points
     def distance(self, pos1, pos2):
-        euclideanDistance = torch.sum( torch.pow(pos1 - pos2, 2) )
-        return torch.sqrt(euclideanDistance)
+        return torch.sqrt( torch.sum( torch.pow(pos1 - pos2, 2) ) )
 
 
     def reset(self):
         if self.compactRepresentation:
-            self.state = None
+            self.state = self.ze2
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
-                    if self.state is None:
+                    if self.state is self.ze2:
                         self.state = t
                     elif self.state.shape == t.shape:
                         self.state = torch.cat([self.state.unsqueeze(0), t.unsqueeze(0)], dim=0)
@@ -141,7 +130,10 @@ class CtoEnv(gym.Env):
                         self.state = torch.cat([self.state, t.unsqueeze(0)], dim=0)
 
         else:
-            self.state = torch.zeros(self.numTargets, 2).to(device)
+            if not UsingGPU:
+                self.state = torch.zeros(self.numTargets, 2).to(device)
+            else:
+                self.state = torch.cuda.FloatTensor(self.numTargets, 2).fill_(0.0)
 
             for i, t in enumerate(self.targetLocations):
                 if self.distance(self.agentPosition, t) <= self.sensorRange:
@@ -195,7 +187,10 @@ class CtoEnv(gym.Env):
         # Check if this target has been oncourse for max allowed time or it reached its destination
         if self.targetSteps[idx] == 0 or (abs(self.targetDestinations[idx][0] - self.targetLocations[idx][0]) < 1 and 
             abs(self.targetDestinations[idx][1] - self.targetLocations[idx][1]) < 1):
-            self.targetDestinations[idx] = self.gridDimensions * torch.rand(2).to(device)     
+            if not UsingGPU:
+                self.targetDestinations[idx] = self.gridDimensions * torch.rand(2).to(device)
+            else:
+                self.targetDestinations[idx] = self.gridDimensions * torch.cuda.FloatTensor(2).uniform_(0, 1)
             #Create new destination and reset step counter to max allowed time and position increments to default   
             self.targetSteps[idx] = self.targetMaxStep
             self.targetPosIncrements[idx].fill_(-1000.0)
@@ -228,7 +223,7 @@ class CtoEnv(gym.Env):
     def calculateIncrements(self, loc, dest, speed):
         delta = dest - loc
 
-        theta = torch.zeros(1).to(device)
+        theta = self.ze1.clone()
         if abs(delta[0]) > abs(delta[1]):
             theta = torch.abs(delta[0])
         else:
